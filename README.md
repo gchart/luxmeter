@@ -14,8 +14,9 @@ Steps:
 * Wire all components in parallel to the i2c pins of the ESP8266 board
 * Use Ardunio IDE to load the software on the ESP8266 (don't forget to enter your wifi info)
 * Connect the ESP8266 to power.  If all goes right, it should connect to wifi and the sensors and display that information on the screen
+* At this point, I like to set a reserved IP address in my router so I always know what IP address I'm using.
 * You can now use a web browser to access the lux and temperature values (simply go to the IP address of your ESP8266)
-* To log data, use a batch script, such as those attached, to store the readouts into a CSV file
+* To log data, use a batch script, such as those attached, to store the readouts into a CSV file.  I run my main script (lux-logger.sh) on a Linux server that I remote into, it sets up the logging process which it sends to the background and continues logging until it's reached the allotted time or lux values fall below the minimum threshhold.  By using 2 scripts (one running in the background), you can disconnect your terminal/ssh session and still have the logging continue.
 * Don't forget to calibrate the lux meter (use a get parameter with the calibration factor when accessing the ESP8266's URL)
 
 

@@ -19,8 +19,8 @@ Steps:
 * Don't forget to calibrate the lux meter (use a get parameter with the calibration factor when accessing the ESP8266's URL)
 
 
-![Lux Meter Parts](/blob/main/lux_meter_parts.jpg)
+![Lux Meter Parts](lux_meter_parts.jpg)
 
-![Lux Meter Sensors](/blob/main/lux_meter_sensors.jpg)
+![Lux Meter Sensors](lux_meter_sensors.jpg)
 
-![Lux Meter Operation](/blob/main/lux_meter_operation.jpg)
+![Lux Meter Operation](lux_meter_operation.jpg)

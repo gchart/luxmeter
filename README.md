@@ -17,3 +17,10 @@ Steps:
 * You can now use a web browser to access the lux and temperature values (simply go to the IP address of your ESP8266)
 * To log data, use a batch script, such as those attached, to store the readouts into a CSV file
 * Don't forget to calibrate the lux meter (use a get parameter with the calibration factor when accessing the ESP8266's URL)
+
+
+![Lux Meter Parts](/blob/main/lux_meter_parts.jpg)
+
+![Lux Meter Sensors](/blob/main/lux_meter_sensors.jpg)
+
+![Lux Meter Operation](/blob/main/lux_meter_operation.jpg)

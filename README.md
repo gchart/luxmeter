@@ -10,6 +10,8 @@ Equipment needed:
 * MLX90614 IR Temperature sensor [such as this](https://www.amazon.com/gp/product/B07YZVDWWB/)
 * Wires and/or perf board
 
+This does not cover the actual construction of the lumen tube.  For mine, I used 3" PVC pipe and fittings, some custom-cut acrylic discs (glass would work well too) covered in D-C Fix diffusion film, and a custom 3D printed (using "clear" PETG) disc of sorts that really scatters the light as is needed for proper integration.
+
 Steps:
 * Wire all components in parallel to the i2c pins of the ESP8266 board
 * Use Ardunio IDE to load the software on the ESP8266 (don't forget to enter your wifi info)

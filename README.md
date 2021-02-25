@@ -4,7 +4,8 @@ ESP8266-based WiFi Lux Meter
 These aren't full instructions, but should provide a good overview
 
 **Major Update 2020-02-25: Version 2**
-Instead of running scripts to log data, Version 2 sets up a self-contained webpage which publishes data using socket connections (read: fast and reactive).  It also uses WifiManager, so there's no need to put in your Wifi credentials in the code.  When you first start it up, use your phone or computer and connect to the Luxmeter-AP hotspot that is created.  It should provide a captive portal where you select your Wifi network and enter in the passcode.  After the lux meter is connected to wifi, navigate your browser to the IP address of the lux meter.  Note, do not let your device (phone/computer) go to sleep or it will stop logging.
+
+Instead of running scripts to log data, Version 2 sets up a self-contained webpage which publishes data using socket connections (read: fast and reactive).  It also uses WifiManager, so there's no need to put in your Wifi credentials in the code.  When you first start it up, use your phone or computer and connect to the Luxmeter-AP hotspot that is created.  It should provide a captive portal where you select your Wifi network and enter in the passcode.  After the lux meter is connected to wifi, navigate your browser to the IP address of the lux meter.  Note, do not let your device (phone/computer) go to sleep or it will stop logging.  Instead of polling data at set intervals, this logs data whenever lumens or temperature changes in a meaningful way (like more than 1% change) and at least once a minute
 
 ![Version 2 Screenshot](lux_meter_v2_screenshot.png)
 

@@ -123,6 +123,7 @@ const char index_html[] PROGMEM = R"rawliteral(
   var minimum_lumens = 3;
   var low_lumens_count;
   window.addEventListener('load', onLoad);
+  window.addEventListener('beforeunload', onBeforeUnload);
   function initWebSocket() {
     console.log('Trying to open a WebSocket connection...');
     websocket = new WebSocket(gateway);
@@ -166,6 +167,10 @@ const char index_html[] PROGMEM = R"rawliteral(
   function onLoad(event) {
     initWebSocket();
     initButtons();
+  }
+  function onBeforeUnload(e) { // make sure user saved their work before closing or reloading
+    e.preventDefault();
+    e.returnValue = '';
   }
   function initButtons() {
     document.getElementById('startStop').addEventListener('click', startStop);

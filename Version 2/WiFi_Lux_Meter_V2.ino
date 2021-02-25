@@ -4,7 +4,7 @@
  *  thanks to them for the tutorial!
 */
 
-#include <WiFiManager.h>
+#include <WiFiManager.h>  // Search Library Manager for "wifimanager" and install "WiFiManager by tzapu"
 #include <Wire.h>
 #include <EEPROM.h>
 #include <ESPAsyncTCP.h>  // Download & import https://github.com/me-no-dev/ESPAsyncTCP/archive/master.zip

@@ -39,7 +39,7 @@ const char index_html[] PROGMEM = R"rawliteral(
     max-width: 50px;
   }
   .content {
-    padding: 30px;
+    padding: 20px 20px 10px 20px;
     max-width: 600px;
     margin: 0 auto;
   }
@@ -93,6 +93,8 @@ const char index_html[] PROGMEM = R"rawliteral(
         Lumens: <span id="lumens">%LUMENS%</span>
         <br>
         Temperature: <span id="temp">%TEMP%</span>&deg;C
+        <br>
+        Status: <span id="logMsg">stopped</span>
       </p>
       <p>
         <button id="startStop" class="button">Start Logging</button>
@@ -106,9 +108,12 @@ const char index_html[] PROGMEM = R"rawliteral(
     </div>
   </div>
   <div class="content">
-    <h2>Log Data: <span id="logMsg">stopped</span></h2>
+    <div class="card" id="chartDiv"></div>
+  </div>
+  <div class="content">
     <div class="card" id="log" style="white-space: pre;">Minutes, Lumens, Temperature</div>
   </div>
+<script type="text/javascript" src="https://www.gstatic.com/charts/loader.js"></script>
 <script>
   var gateway = `ws://${window.location.hostname}/ws`;
   var websocket;
@@ -140,15 +145,17 @@ const char index_html[] PROGMEM = R"rawliteral(
     
     if(waiting_for_light && lumens >= minimum_lumens) { 
       waiting_for_light = 0; 
-      if(start_time === null) start_time = new Date();
       document.getElementById('logMsg').innerHTML = 'logging';
     }
     if(log_flag && !waiting_for_light) {
+      if(start_time === null) start_time = new Date();
       var current_time = new Date();
       var elapsed_millis = current_time - start_time;
       var current_minutes = (elapsed_millis / 1000 / 60).toFixed(3);
       
       document.getElementById('log').append('\r\n' + current_minutes + ', ' + event.data);
+      data.addRow([parseFloat(current_minutes),parseFloat(lumens),parseFloat(temp)]);
+      drawChart();
       
       if(lumens < minimum_lumens) low_lumens_count++;
       else low_lumens_count = 0;
@@ -189,6 +196,7 @@ const char index_html[] PROGMEM = R"rawliteral(
     if (ok_to_clear) { 
       document.getElementById('log').innerHTML = 'Minutes, Lumens, Temperature'; 
       start_time = null;
+      initChart();
     }
   }
   function downloadCSV() {
@@ -212,6 +220,41 @@ const char index_html[] PROGMEM = R"rawliteral(
     // if user provided a valid number, send it to the lux meter
     if(isFinite(divisor) && divisor > 0) { websocket.send('divisor:'+divisor); }
   }
+
+  google.charts.load('current', {'packages':['corechart']});
+  google.charts.setOnLoadCallback(initChart);
+
+  var data;
+  var chart;
+  var options = {
+    'backgroundColor': '#F8F7F9',
+    series: {
+      0: {targetAxisIndex: 0},
+      1: {targetAxisIndex: 1}
+    },
+    vAxes: {
+      0: {title: 'Lumens'},
+      1: {title: 'Temperature \u00B0C'}
+    },
+    legend: {
+      position: 'none'
+    }
+  };
+
+  function drawChart() {
+    chart.draw(data, options);
+  }
+
+  function initChart() {
+    data = new google.visualization.DataTable();
+    data.addColumn('number', 'Minutes');
+    data.addColumn('number', 'Lumens');
+    data.addColumn('number', 'Temperature \u00B0C');
+    chart = new google.visualization.LineChart(document.getElementById('chartDiv'));
+    data.addRow([0.0,0.0,0.0]);
+    drawChart();
+  }
+
 </script>
 </body>
 </html>

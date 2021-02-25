@@ -1,295 +1,297 @@
-const char index_html[] PROGMEM = R"rawliteral(
-<!DOCTYPE HTML><html>
-<head>
-  <title>Lux Logger</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <link rel="icon" href="/favicon.svg">
-  <style>
-  html {
-    font-family: Arial, Helvetica, sans-serif;
-    text-align: center;
+/* 
+ *  Much of the WebSockets code was borrowed from 
+ *  https://randomnerdtutorials.com/esp8266-nodemcu-websocket-server-arduino/
+ *  thanks to them for the tutorial!
+*/
+
+#include <WiFiManager.h>
+#include <Wire.h>
+#include <EEPROM.h>
+#include <ESPAsyncTCP.h>  // Download & import https://github.com/me-no-dev/ESPAsyncTCP/archive/master.zip
+#define WEBSERVER_H
+#include <ESPAsyncWebServer.h> // Download & import https://github.com/me-no-dev/ESPAsyncWebServer/archive/master.zip
+
+#include <Adafruit_Sensor.h>
+#include <Adafruit_TSL2591.h>
+#include <Adafruit_MLX90614.h>
+#include <Adafruit_GFX.h>
+#include <Adafruit_SSD1306.h>
+#include <Fonts/FreeSansBold18pt7b.h>
+#include <Fonts/FreeSansBold9pt7b.h>
+
+#include "luxmeter.h"
+
+#define SCREEN_WIDTH 128 // OLED display width, in pixels
+#define SCREEN_HEIGHT 64 // OLED display height, in pixels
+
+// Declaration for an SSD1306 display connected to I2C (SDA, SCL pins)
+#define OLED_RESET     -1 // Reset pin # (or -1 if sharing Arduino reset pin)
+Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
+
+#define MLX_ADDR 0x5A
+Adafruit_MLX90614 mlx = Adafruit_MLX90614(MLX_ADDR);
+Adafruit_TSL2591 tsl = Adafruit_TSL2591(2591);
+AsyncWebServer server(80);
+AsyncWebSocket ws("/ws");
+
+// define global variables
+uint8_t gain = 1;
+float lumens;
+float tempC = 0;
+float last_lumens_sent;
+float last_tempC_sent;
+unsigned long last_msg_time;
+bool lux_sensor = false;
+bool temp_sensor = false;
+float divisor = 1.0;
+
+void setupDisplay() {
+  if(!display.begin(SSD1306_SWITCHCAPVCC, 0x3C)) {
+    Serial.println(F("SSD1306 allocation failed"));
+    for(;;); // Don't proceed, loop forever
   }
-  h1 {
-    font-size: 1.8rem;
-    color: white;
+
+  // set up the display
+  display.clearDisplay();
+  display.setRotation(2);  // flip display upsidedown
+  display.setTextSize(1);
+  display.setTextColor(SSD1306_WHITE);
+}
+
+void configModeCallback (WiFiManager *myWiFiManager) {
+  display.clearDisplay();
+  display.setCursor(0,0);
+  display.println("WiFi not connected.\nEntering AP mode,\nplease connect device\nto LuxMeter-AP to\nset up WiFi.");
+  display.display();
+}
+
+void getConnected() {
+  display.setCursor(0,0);
+  display.println("Connecting to WiFi"); display.display();
+  WiFi.mode(WIFI_STA);
+  WiFiManager wm;
+  //wm.resetSettings(); // reset settings - for testing
+  wm.setAPCallback(configModeCallback);
+  wm.autoConnect("LuxMeter-AP");
+  display.clearDisplay();
+  display.setCursor(0,0);
+  display.println("WiFi connected.");
+  display.println("IP Address: ");
+  display.println(WiFi.localIP());
+  display.display();
+}
+
+void setupSensors() {
+  if (tsl.begin()) {
+    lux_sensor = true;
+    display.println("TSL2591 sensor found"); display.display();
   }
-  h2{
-    font-size: 1.5rem;
-    font-weight: bold;
-    color: #143642;
+  else {
+    display.println("TSL2591 not found!"); display.display();
   }
-  .topnav {
-    overflow: hidden;
-    background-color: #143642;
+
+  gain = 1;
+  tsl.setGain(TSL2591_GAIN_LOW);
+  tsl.setTiming(TSL2591_INTEGRATIONTIME_100MS);
+
+  Wire.beginTransmission(MLX_ADDR);
+  if (Wire.endTransmission() == 0) { // device found!
+    temp_sensor = true;
+    mlx.begin(); // initialize the MLX90614 sensor
+    display.println("MLX90614 sensor found"); display.display();
   }
-  body {
-    margin: 0;
+  else {
+    display.println("MLX90614 not found!"); display.display();
   }
-  p {
-    margin-block-start: 0.5em;
-    margin-block-end: 0.5em;
+
+  delay(3000); // Pause for 3 seconds to display setup info
+}
+
+void set_divisor(float d) {
+  EEPROM.put(0,d);
+  EEPROM.commit();
+  divisor = d;
+  Serial.print("EEPROM now contains: ");
+  float test;
+  EEPROM.get(0,test);
+  Serial.println(test);
+}
+
+float get_divisor() {
+  float d;
+  EEPROM.get(0,d);
+  Serial.print("EEPROM contains: ");
+  Serial.println(d);
+  if(d == 0 || isnan(d)) {d = 1;} // don't let the divisor be 0 (or "nan" not a number)
+  return d;
+}
+
+void updateLumens() {
+  uint16_t reading = tsl.getLuminosity(TSL2591_VISIBLE);
+  
+  if (reading == 65535) { return; } // bogus value, ignore and get out
+
+  lumens = reading / divisor / gain;
+  if (lumens >= 100) { lumens = round(lumens); } // round to 0 decimal points
+  else { lumens = ((float)((int)(lumens * 10 + 0.5))) / 10; } // round to 1 decimal point
+
+  // if we're less than 10 lumens, use 25x gain
+  if (gain == 1 && lumens < 10) {
+    gain = 25;
+    tsl.setGain(TSL2591_GAIN_MED);
   }
-  input {
-    color: #143642;
-    background-color: #fafafa;
-    border: 1px solid #ccc;
-    border-radius: 0;
-    padding: 10px 15px;
-    box-sizing: border-box;
-    max-width: 50px;
+  else if (gain > 1 && (lumens >= 10 || reading == 0)) {  // >=10 lumens or we're saturated
+    gain = 1;
+    tsl.setGain(TSL2591_GAIN_LOW);
   }
-  .content {
-    padding: 20px 20px 10px 20px;
-    max-width: 600px;
-    margin: 0 auto;
+}
+
+void updateTemp() {
+  float reading = mlx.readObjectTempC();
+  if(tempC != 0 && ( reading < 0 || reading > 100 || abs(reading - tempC) > 50 )) {
+    ws.textAll("Bad temp: " + String(reading,1) + ".  Calling Wire.begin() again."); 
+    Wire.begin(); // not sure if it helps, but I doubt that it hurts
   }
-  .card {
-    background-color: #F8F7F9;;
-    box-shadow: 2px 2px 12px 1px rgba(140,140,140,.5);
-    padding-top:10px;
-    padding-bottom:10px;
+  else {
+    tempC = reading;
   }
-  .button {
-    padding: 10px 16px;
-    margin: 5px;
-    font-size: 16px;
-    text-align: center;
-    outline: none;
-    color: #fff;
-    background-color: #0f8b8d;
-    border: none;
-    border-radius: 5px;
-    -webkit-touch-callout: none;
-    -webkit-user-select: none;
-    -khtml-user-select: none;
-    -moz-user-select: none;
-    -ms-user-select: none;
-    user-select: none;
-    -webkit-tap-highlight-color: rgba(0,0,0,0);
-   }
-   /*.button:hover {background-color: #0f8b8d}*/
-   .button:active {
-     background-color: #0f8b8d;
-     box-shadow: 2 2px #CDCDCD;
-     transform: translateY(2px);
-   }
-   .state {
-     font-size: 1.5rem;
-     color:#8c8c8c;
-     font-weight: bold;
-   }
-  </style>
-<title>Lux Logger</title>
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<link rel="icon" href="data:,">
-</head>
-<body>
-  <div class="topnav">
-    <h1>Lux Logger</h1>
-  </div>
-  <div class="content">
-    <div class="card">
-      <p class="state">
-        Lumens: <span id="lumens">%LUMENS%</span>
-        <br>
-        Temperature: <span id="temp">%TEMP%</span>&deg;C
-        <br>
-        Status: <span id="logMsg">stopped</span>
-      </p>
-      <p>
-        <button id="startStop" class="button">Start Logging</button>
-        <button id="clearLog" class="button">Clear Log</button>
-        <button id="downloadCSV" class="button">Download CSV</button>
-        <button id="copyToClipboard" class="button">Copy to Clipboard</button>
-        <button id="setDivisor" class="button">Set Divisor</button>
-        <br>
-        Minimum Lumens to log: <input type="text" id="minLumens" value="3">
-      </p>
-    </div>
-  </div>
-  <div class="content">
-    <div class="card" id="chartDiv"></div>
-  </div>
-  <div class="content">
-    <div class="card" id="log" style="white-space: pre;">Minutes, Lumens, Temperature</div>
-  </div>
-<script type="text/javascript" src="https://www.gstatic.com/charts/loader.js"></script>
-<script>
-  var gateway = `ws://${window.location.hostname}/ws`;
-  var websocket;
-  var start_time = null;
-  var log_flag = 0;
-  var waiting_for_light;
-  var minimum_lumens = 3;
-  var low_lumens_count;
-  window.addEventListener('load', onLoad);
-  function initWebSocket() {
-    console.log('Trying to open a WebSocket connection...');
-    websocket = new WebSocket(gateway);
-    websocket.onopen    = onOpen;
-    websocket.onclose   = onClose;
-    websocket.onmessage = onMessage; // <-- add this line
+}
+
+void displayData() {
+  int16_t  x1, y1;
+  uint16_t w, h;
+
+  display.clearDisplay();
+  display.setFont(&FreeSansBold18pt7b);
+  String lumens_str = String(lumens, (lumens <= 10 ? 1 : 0));
+  display.getTextBounds(lumens_str, 0, 28, &x1, &y1, &w, &h);
+  display.setCursor(display.width() - w - 5, 28);
+  display.println(lumens_str);
+  if (temp_sensor) {
+    if(tempC < 16 || tempC > 30) Serial.println("Temperature: " + String(tempC) + "*C");
+    display.setCursor(0,63);
+    display.print(tempC,0);
+    display.setFont(&FreeSansBold9pt7b);
+    display.setCursor(display.getCursorX(), 52);
+    display.print(" *C");
   }
-  function onOpen(event) {
-    console.log('Connection opened');
-  }
-  function onClose(event) {
-    console.log('Connection closed');
-    setTimeout(initWebSocket, 2000);
-  }
-  function onMessage(event) {
-    var lumens = event.data.split(',')[0];
-    var temp = event.data.split(',')[1];
-    document.getElementById('lumens').innerHTML = lumens;
-    document.getElementById('temp').innerHTML = temp;
-    
-    if(waiting_for_light && lumens >= minimum_lumens) { 
-      waiting_for_light = 0; 
-      document.getElementById('logMsg').innerHTML = 'logging';
+  display.setFont(&FreeSansBold9pt7b);
+  display.getTextBounds((String)divisor, 0, 63, &x1, &y1, &w, &h);
+  display.setCursor(display.width() - w - 5, 63);
+  display.print((String)divisor);
+  display.display();
+}
+
+void notifyClients(uint32_t client_id = 0) {
+  String msg = String(lumens, (lumens <= 10 ? 1 : 0)) + ", " + String(tempC,1);
+  if(client_id == 0) { ws.textAll(msg); }
+  else { ws.text(client_id, msg); }
+}
+
+void handleWebSocketMessage(void *arg, uint8_t *data, size_t len, uint32_t client_id) {
+  AwsFrameInfo *info = (AwsFrameInfo*)arg;
+  if (info->final && info->index == 0 && info->len == len && info->opcode == WS_TEXT) {
+    data[len] = 0;
+    String str = String((char*)data);
+    if(str.startsWith("divisor:")) {
+      float d = str.substring(1+str.indexOf(":")).toFloat();
+      set_divisor(d);
     }
-    if(log_flag && !waiting_for_light) {
-      if(start_time === null) start_time = new Date();
-      var current_time = new Date();
-      var elapsed_millis = current_time - start_time;
-      var current_minutes = (elapsed_millis / 1000 / 60).toFixed(3);
-      
-      document.getElementById('log').append('\r\n' + current_minutes + ', ' + event.data);
-      data.addRow([parseFloat(current_minutes),parseFloat(lumens),parseFloat(temp)]);
-      drawChart();
-      
-      if(lumens < minimum_lumens) low_lumens_count++;
-      else low_lumens_count = 0;
-      if(low_lumens_count >= 3) startStop();
-    }
-
-  }
-  function onLoad(event) {
-    initWebSocket();
-    initButtons();
-  }
-  function initButtons() {
-    document.getElementById('startStop').addEventListener('click', startStop);
-    document.getElementById('clearLog').addEventListener('click', clearLog);
-    document.getElementById('downloadCSV').addEventListener('click', downloadCSV);
-    document.getElementById('copyToClipboard').addEventListener('click', copyToClipboard);
-    document.getElementById('setDivisor').addEventListener('click', setDivisor);
-  }
-  function startStop() {
-    if(log_flag) {
-      log_flag = 0;
-      document.getElementById('startStop').innerHTML = 'Start Logging';
-      document.getElementById('logMsg').innerHTML = 'stopped';
-    }
-    else {
-      log_flag = 1;
-      waiting_for_light = 1;
-      low_lumens_count = 0;
-      var ml = parseFloat( document.getElementById('minLumens').value );
-      if(!isNaN(ml)) { minimum_lumens = ml; }
-      document.getElementById('startStop').innerHTML = 'Stop Logging';
-      document.getElementById('logMsg').innerHTML = 'waiting for light';
-      websocket.send('update'); // request an update
+    if(str == "update") { // got a request for an update
+      notifyClients(client_id);
     }
   }
-  function clearLog() {
-    var ok_to_clear = confirm("Are you sure you want to clear the log? Press Ok to clear it; press Cancel to... cancel.");
-    if (ok_to_clear) { 
-      document.getElementById('log').innerHTML = 'Minutes, Lumens, Temperature'; 
-      start_time = null;
-      initChart();
-    }
+}
+
+void onEvent(AsyncWebSocket *server, AsyncWebSocketClient *client, AwsEventType type, void *arg, uint8_t *data, size_t len) {
+  switch (type) {
+    case WS_EVT_CONNECT:
+      Serial.printf("WebSocket client #%u connected from %s\n", client->id(), client->remoteIP().toString().c_str());
+      break;
+    case WS_EVT_DISCONNECT:
+      Serial.printf("WebSocket client #%u disconnected\n", client->id());
+      break;
+    case WS_EVT_DATA:
+      handleWebSocketMessage(arg, data, len, client->id());
+      break;
+    case WS_EVT_PONG:
+    case WS_EVT_ERROR:
+      break;
   }
-  function downloadCSV() {
-    var a = document.body.appendChild( document.createElement("a") );
-    a.download = "LuxLog.csv";
-    a.href = "data:text/csv," + document.getElementById("log").innerHTML;
-    a.click();
+}
+
+void initWebSocket() {
+  ws.onEvent(onEvent);
+  server.addHandler(&ws);
+}
+
+String processor(const String& var){
+  if(var == "LUMENS"){ return String(lumens, (lumens <= 10 ? 1 : 0)); }
+  if(var == "TEMP"){ return String(tempC,1); }
+}
+
+void setup() {
+  Serial.begin(115200);
+
+  EEPROM.begin(4);  // a float needs 4 bytes
+  divisor = get_divisor();
+
+  setupDisplay();
+  getConnected();
+  setupSensors();
+
+  delay(3000); // wait so user can see setup info
+
+  initWebSocket();
+
+  // Route for root / web page
+  server.on("/", HTTP_GET, [](AsyncWebServerRequest *request){
+    request->send_P(200, "text/html", index_html, processor);
+  });
+
+  // and set up one for the favicon
+  server.on("/favicon.svg", HTTP_GET, [](AsyncWebServerRequest *request){
+    request->send_P(200, "image/svg+xml", favicon_svg);
+  });
+
+  // Start server
+  server.begin();
+}
+
+void loop() {
+  ws.cleanupClients();
+  if(lux_sensor) { updateLumens(); }
+  if(temp_sensor) { updateTemp(); }
+  displayData();
+
+  // only notify if lumens has changed 1% or more
+  // or temperature has changed 2% or more
+  // or if it has been more than a minute since the last msg
+  bool send_update = 0;
+  
+  if(last_lumens_sent == 0) {
+    if(lumens != 0) { send_update = 1; }
   }
-  function copyToClipboard() {
-    var logdiv = document.getElementById("log");
-    var selection = window.getSelection();
-    var range = document.createRange();
-    range.selectNodeContents(logdiv);
-    selection.removeAllRanges();
-    selection.addRange(range);
-    document.execCommand("Copy");
-    selection.removeAllRanges();
+  else { // not zero, don't worry about DIV0 problems
+    if(lumens >= 100 && abs((last_lumens_sent-lumens)*100/last_lumens_sent) >= 1) { send_update = 1; }
+    if(lumens < 100 && abs(last_lumens_sent-lumens) >= 1) { send_update = 1; }
+    if(lumens < 10 && abs(10*(last_lumens_sent-lumens)) >= 1) { send_update = 1; }
   }
-  function setDivisor() {
-    var divisor = parseFloat(prompt('Enter a new divisor'));
-    // if user provided a valid number, send it to the lux meter
-    if(isFinite(divisor) && divisor > 0) { websocket.send('divisor:'+divisor); }
+  
+  if(last_tempC_sent == 0) {
+    if(tempC != 0) { send_update = 1; }
+  }
+  else { // not zero, don't worry about DIV0 problems
+    if(abs((last_tempC_sent-tempC)*100/last_tempC_sent) >= 2) { send_update = 1; }
   }
 
-  google.charts.load('current', {'packages':['corechart']});
-  google.charts.setOnLoadCallback(initChart);
-
-  var data;
-  var chart;
-  var options = {
-    'backgroundColor': '#F8F7F9',
-    series: {
-      0: {targetAxisIndex: 0},
-      1: {targetAxisIndex: 1}
-    },
-    vAxes: {
-      0: {title: 'Lumens'},
-      1: {title: 'Temperature \u00B0C'}
-    },
-    legend: {
-      position: 'none'
-    }
-  };
-
-  function drawChart() {
-    chart.draw(data, options);
+  if(millis() - last_msg_time > 60000) {
+    send_update = 1;
   }
-
-  function initChart() {
-    data = new google.visualization.DataTable();
-    data.addColumn('number', 'Minutes');
-    data.addColumn('number', 'Lumens');
-    data.addColumn('number', 'Temperature \u00B0C');
-    chart = new google.visualization.LineChart(document.getElementById('chartDiv'));
-    data.addRow([0.0,0.0,0.0]);
-    drawChart();
+  if(send_update) { 
+    last_lumens_sent = lumens;
+    last_tempC_sent = tempC;
+    last_msg_time = millis();
+    notifyClients();
   }
-
-</script>
-</body>
-</html>
-)rawliteral";
-
-const char favicon_svg[] PROGMEM = R"rawliteral(
-<svg version="1.1" id="Layer_1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
-   viewBox="0 0 372.278 372.278" style="enable-background:new 0 0 372.278 372.278;" xml:space="preserve">
-<style>
-  path { fill: #000000; }
-  @media (prefers-color-scheme: dark) { path { fill: #ffffff; } }
-</style>
-<g id="XMLID_836_">
-  <path id="XMLID_837_" d="M209.454,56.757c-5.856-5.858-15.355-5.857-21.213,0l-42.428,42.426c-0.046,0.045-0.085,0.097-0.13,0.143
-    c-0.256,0.263-0.502,0.534-0.738,0.815c-0.061,0.073-0.124,0.143-0.184,0.217c-0.271,0.335-0.527,0.681-0.77,1.039
-    c-0.052,0.077-0.1,0.156-0.149,0.233c-0.196,0.303-0.382,0.614-0.558,0.931c-0.049,0.089-0.099,0.176-0.146,0.266
-    c-0.2,0.383-0.387,0.774-0.555,1.175c-0.027,0.064-0.049,0.13-0.075,0.194c-0.138,0.345-0.263,0.695-0.376,1.052
-    c-0.035,0.109-0.07,0.219-0.102,0.329c-0.123,0.417-0.234,0.84-0.32,1.271l-13.25,66.258l-36.295,36.295
-    c-5.574-2.66-12.445-1.698-17.062,2.919L46.82,240.606c-4.616,4.616-5.579,11.487-2.919,17.062L4.394,297.174
-    c-5.858,5.858-5.858,15.355,0,21.213l49.496,49.496c2.929,2.929,6.768,4.394,10.606,4.394c3.839,0,7.678-1.464,10.606-4.394
-    L199.17,243.816l66.258-13.25c0.432-0.087,0.854-0.197,1.271-0.32c0.11-0.032,0.22-0.067,0.328-0.102
-    c0.357-0.113,0.709-0.238,1.053-0.377c0.065-0.026,0.13-0.048,0.193-0.075c0.401-0.168,0.793-0.355,1.176-0.556
-    c0.089-0.046,0.176-0.097,0.265-0.145c0.318-0.175,0.63-0.361,0.933-0.559c0.078-0.05,0.156-0.097,0.232-0.148
-    c0.358-0.242,0.705-0.499,1.04-0.77c0.072-0.059,0.142-0.122,0.214-0.181c0.283-0.238,0.557-0.486,0.821-0.745
-    c0.045-0.043,0.095-0.081,0.139-0.126l42.428-42.428c2.814-2.813,4.394-6.628,4.394-10.606c0-3.979-1.58-7.793-4.394-10.607
-    L209.454,56.757z M64.496,336.063L36.213,307.78l106.066-106.066l28.283,28.283L64.496,336.063z M196.706,213.714l-38.144-38.144
-    l7.07-35.355l66.428,66.428L196.706,213.714z M262.487,194.643l-84.853-84.853l21.214-21.213l84.853,84.852L262.487,194.643z"/>
-  <path id="XMLID_842_" d="M357.278,104.816h-21.125c-8.284,0-15,6.716-15,15c0,8.284,6.716,15,15,15h21.125c8.284,0,15-6.716,15-15
-    C372.278,111.531,365.562,104.816,357.278,104.816z"/>
-  <path id="XMLID_843_" d="M252.46,51.125L252.46,51.125c8.284,0,15-6.715,15.001-14.999l0.002-21.124
-    c0.001-8.284-6.714-15-14.999-15.002h-0.001c-8.283,0-14.999,6.715-15,14.999l-0.002,21.124
-    C237.46,44.408,244.175,51.124,252.46,51.125z"/>
-  <path id="XMLID_844_" d="M311.641,75.637c3.838,0,7.678-1.464,10.606-4.393l14.938-14.936c5.857-5.858,5.858-15.355,0.001-21.213
-    c-5.858-5.857-15.355-5.859-21.214,0L301.034,50.03c-5.857,5.858-5.858,15.355-0.001,21.213
-    C303.963,74.173,307.802,75.637,311.641,75.637z"/>
-</g>
-</svg>
-)rawliteral";
+}

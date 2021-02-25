@@ -3,6 +3,11 @@ ESP8266-based WiFi Lux Meter
 
 These aren't full instructions, but should provide a good overview
 
+**Major Update 2020-02-25: Version 2**
+Instead of running scripts to log data, Version 2 sets up a self-contained webpage which publishes data using socket connections (read: fast and reactive).  It also uses WifiManager, so there's no need to put in your Wifi credentials in the code.  When you first start it up, use your phone or computer and connect to the Luxmeter-AP hotspot that is created.  It should provide a captive portal where you select your Wifi network and enter in the passcode.  After the lux meter is connected to wifi, navigate your browser to the IP address of the lux meter.  Note, do not let your device (phone/computer) go to sleep or it will stop logging.
+
+![Version 2 Screenshot](lux_meter_v2_screenshot.jpg)
+
 Equipment needed:
 * ESP8266 board (I used a Wemos D1 Mini)
 * 0.96" OLED screen, i2c based with SSD1306 controller [such as this](https://www.amazon.com/dp/B06XRBTBTB/)

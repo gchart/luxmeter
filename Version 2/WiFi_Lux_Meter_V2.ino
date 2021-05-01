@@ -2,6 +2,8 @@
  *  Much of the WebSockets code was borrowed from 
  *  https://randomnerdtutorials.com/esp8266-nodemcu-websocket-server-arduino/
  *  thanks to them for the tutorial!
+ *
+ *  Make sure to use the ESP8266 core available here: https://github.com/esp8266/Arduino
 */
 
 #include <WiFiManager.h>  // Search Library Manager for "wifimanager" and install "WiFiManager by tzapu"
@@ -147,14 +149,17 @@ void updateLumens() {
 }
 
 void updateTemp() {
-  float reading = mlx.readObjectTempC();
-  if(tempC != 0 && ( reading < 0 || reading > 100 || abs(reading - tempC) > 50 )) {
-    ws.textAll("Bad temp: " + String(reading,1) + ".  Calling Wire.begin() again."); 
-    Wire.begin(); // not sure if it helps, but I doubt that it hurts
-  }
-  else {
+  // updating every 100ms seems to be too much for the poor little sensor
+  // so back off and only read it every 10th time (around 1s)
+  static uint8_t temp_delay = 0;
+  if (temp_delay == 0) {
+    float reading = mlx.readObjectTempC();
+    Serial.println("Reading: " + String(reading,2));
     tempC = reading;
   }
+  temp_delay++;
+  if (temp_delay >= 10) { temp_delay = 0; }
+
 }
 
 void displayData() {
@@ -273,16 +278,16 @@ void loop() {
     if(lumens != 0) { send_update = 1; }
   }
   else { // not zero, don't worry about DIV0 problems
-    if(lumens >= 100 && abs((last_lumens_sent-lumens)*100/last_lumens_sent) >= 1) { send_update = 1; }
-    if(lumens < 100 && abs(last_lumens_sent-lumens) >= 1) { send_update = 1; }
-    if(lumens < 10 && abs(10*(last_lumens_sent-lumens)) >= 1) { send_update = 1; }
+    if(lumens >= 100 && abs((last_lumens_sent-lumens)*100/last_lumens_sent) >= 2) { send_update = 1; }
+    if(lumens < 100 && abs(last_lumens_sent-lumens) >= 2) { send_update = 1; }
+    if(lumens < 10 && abs(10*(last_lumens_sent-lumens)) >= 2) { send_update = 1; }
   }
-  
+
   if(last_tempC_sent == 0) {
     if(tempC != 0) { send_update = 1; }
   }
-  else { // not zero, don't worry about DIV0 problems
-    if(abs((last_tempC_sent-tempC)*100/last_tempC_sent) >= 2) { send_update = 1; }
+  else { // not zero, don't worry about DIV0 problems... if > 2% change AND > 0.3 degree change
+    if(abs((last_tempC_sent-tempC)*100/last_tempC_sent) >= 2 && abs(last_tempC_sent-tempC)*10 >= 3) { send_update = 1; }
   }
 
   if(millis() - last_msg_time > 60000) {

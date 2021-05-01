@@ -1,7 +1,7 @@
 const char index_html[] PROGMEM = R"rawliteral(
 <!DOCTYPE HTML><html>
 <head>
-  <title>Lux Logger</title>
+  <title>Lux Scribe</title>
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <link rel="icon" href="/favicon.svg">
   <style>
@@ -79,13 +79,13 @@ const char index_html[] PROGMEM = R"rawliteral(
      font-weight: bold;
    }
   </style>
-<title>Lux Logger</title>
+<title>Lux Scribe</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <link rel="icon" href="data:,">
 </head>
 <body>
   <div class="topnav">
-    <h1>Lux Logger</h1>
+    <h1>Lux Scribe &#x1F58B;&#xFE0F;</h1>
   </div>
   <div class="content">
     <div class="card">
@@ -154,7 +154,7 @@ const char index_html[] PROGMEM = R"rawliteral(
       var elapsed_millis = current_time - start_time;
       var current_minutes = (elapsed_millis / 1000 / 60).toFixed(3);
       
-      document.getElementById('log').append('\r\n' + current_minutes + ', ' + event.data);
+      document.getElementById('log').append("\n" + current_minutes + ', ' + event.data);
       data.addRow([parseFloat(current_minutes),parseFloat(lumens),parseFloat(temp)]);
       drawChart();
       
@@ -207,7 +207,7 @@ const char index_html[] PROGMEM = R"rawliteral(
   function downloadCSV() {
     var a = document.body.appendChild( document.createElement("a") );
     a.download = "LuxLog.csv";
-    a.href = "data:text/csv," + document.getElementById("log").innerHTML;
+    a.href = "data:text/csv," + encodeURI(document.getElementById("log").innerHTML);
     a.click();
   }
   function copyToClipboard() {

@@ -7,17 +7,16 @@
 */
 
 #include <WiFiManager.h>  // Search Library Manager for "wifimanager" and install "WiFiManager by tzapu"
-#include <Wire.h>
 #include <EEPROM.h>
 #include <ESPAsyncTCP.h>  // Download & import https://github.com/me-no-dev/ESPAsyncTCP/archive/master.zip
 #define WEBSERVER_H
 #include <ESPAsyncWebServer.h> // Download & import https://github.com/me-no-dev/ESPAsyncWebServer/archive/master.zip
 
-#include <Adafruit_Sensor.h>
-#include <Adafruit_TSL2591.h>
-#include <Adafruit_MLX90614.h>
+#include <Adafruit_Sensor.h>     // Arduino library: Adafruit Unified Sensor
+#include <Adafruit_TSL2591.h>    // Arduino library: Adafruit TSL2591
+#include <Adafruit_MLX90614.h>   // Arduino library: Adafruit MLX90614
 #include <Adafruit_GFX.h>
-#include <Adafruit_SSD1306.h>
+#include <Adafruit_SSD1306.h>    // Arduino library: Adafruit SSD1306
 #include <Fonts/FreeSansBold18pt7b.h>
 #include <Fonts/FreeSansBold9pt7b.h>
 
@@ -30,8 +29,7 @@
 #define OLED_RESET     -1 // Reset pin # (or -1 if sharing Arduino reset pin)
 Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
 
-#define MLX_ADDR 0x5A
-Adafruit_MLX90614 mlx = Adafruit_MLX90614(MLX_ADDR);
+Adafruit_MLX90614 mlx = Adafruit_MLX90614();
 Adafruit_TSL2591 tsl = Adafruit_TSL2591(2591);
 AsyncWebServer server(80);
 AsyncWebSocket ws("/ws");
@@ -96,10 +94,8 @@ void setupSensors() {
   tsl.setGain(TSL2591_GAIN_LOW);
   tsl.setTiming(TSL2591_INTEGRATIONTIME_100MS);
 
-  Wire.beginTransmission(MLX_ADDR);
-  if (Wire.endTransmission() == 0) { // device found!
+  if (mlx.begin()) { // device found!
     temp_sensor = true;
-    mlx.begin(); // initialize the MLX90614 sensor
     display.println("MLX90614 sensor found"); display.display();
   }
   else {
@@ -153,7 +149,12 @@ void updateTemp() {
   // so back off and only read it every 10th time (around 1s)
   static uint8_t temp_delay = 0;
   if (temp_delay == 0) {
-    float reading = mlx.readObjectTempC();
+    // not sure if this will help, but pause 10ms before and after the reading
+    // to make sure the i2c bus is ready to go before calling the MLX90614.
+    // it seems to be very sensitive and can get locked up on erroneous values
+    delay(10);
+    float reading = mlx.readObjectTempC(); // will return NAN if reading failed
+    delay(10);
     Serial.println("Reading: " + String(reading,2));
     tempC = reading;
   }
@@ -188,7 +189,7 @@ void displayData() {
 }
 
 void notifyClients(uint32_t client_id = 0) {
-  String msg = String(lumens, (lumens <= 10 ? 1 : 0)) + ", " + String(tempC,1);
+  String msg = String(lumens, (lumens <= 100 ? 1 : 0)) + ", " + String(tempC,1);
   if(client_id == 0) { ws.textAll(msg); }
   else { ws.text(client_id, msg); }
 }
@@ -231,7 +232,7 @@ void initWebSocket() {
 }
 
 String processor(const String& var){
-  if(var == "LUMENS"){ return String(lumens, (lumens <= 10 ? 1 : 0)); }
+  if(var == "LUMENS"){ return String(lumens, (lumens <= 100 ? 1 : 0)); }
   if(var == "TEMP"){ return String(tempC,1); }
 }
 
@@ -269,8 +270,7 @@ void loop() {
   if(temp_sensor) { updateTemp(); }
   displayData();
 
-  // only notify if lumens has changed 1% or more
-  // or temperature has changed 2% or more
+  // only notify if lumens or temp has changed significantly
   // or if it has been more than a minute since the last msg
   bool send_update = 0;
   

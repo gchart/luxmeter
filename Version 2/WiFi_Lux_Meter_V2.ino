@@ -145,17 +145,22 @@ void updateLumens() {
 }
 
 void updateTemp() {
-  // updating every 100ms seems to be too much for the poor little sensor
+  // there's no need to update temperature every 100ms seems
   // so back off and only read it every 10th time (around 1s)
   static uint8_t temp_delay = 0;
   if (temp_delay == 0) {
-    // not sure if this will help, but pause 10ms before and after the reading
-    // to make sure the i2c bus is ready to go before calling the MLX90614.
-    // it seems to be very sensitive and can get locked up on erroneous values
-    delay(10);
-    float reading = mlx.readObjectTempC(); // will return NAN if reading failed
-    delay(10);
-    Serial.println("Reading: " + String(reading,2));
+    // occassionally the MLX will give erroneous readings (NAN or 1037.5 *C)
+    // so make a few attempts if needed before providing junk data
+    int attempt = 0;
+    float reading = mlx.readObjectTempC();
+    Serial.println("Temperature Reading, attempt" + String(attempt) + ": " + String(reading,2));
+
+    while(attempt < 3 && (reading > 1000 || isnan(reading))) {
+      attempt++;
+      reading = mlx.readObjectTempC();
+      Serial.println("Temperature Reading, attempt" + String(attempt) + ": " + String(reading,2));
+    }
+    
     tempC = reading;
   }
   temp_delay++;
@@ -174,7 +179,6 @@ void displayData() {
   display.setCursor(display.width() - w - 5, 28);
   display.println(lumens_str);
   if (temp_sensor) {
-    if(tempC < 16 || tempC > 30) Serial.println("Temperature: " + String(tempC) + "*C");
     display.setCursor(0,63);
     display.print(tempC,0);
     display.setFont(&FreeSansBold9pt7b);
